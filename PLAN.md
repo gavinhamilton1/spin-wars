@@ -3,9 +3,19 @@
 A Beyblade-inspired, two-player local game where each player swipes a rip cord
 to launch a spinning top into a shared circular arena. Spinners collide under
 realistic 2D physics, losing angular velocity over time and through impacts,
-until one is knocked out of the ring, stops spinning, or is destroyed.
+until one is knocked out of the ring, stops spinning, or bursts apart.
 
 Target platforms: **iOS, Android, and Web** from a single codebase.
+
+### Project decisions (locked)
+- **Orientation**: landscape, locked.
+- **Burst mechanic**: included in v1.
+- **Monetisation**: none — completely free, no ads, no IAP.
+- **Art direction**: metallic-realistic (PBR-feeling 2D top-down sprites with
+  brushed metal, scratches, sparks, and rim lighting).
+- **Audience**: under 13 — COPPA-compliant. No behavioural analytics, no
+  third-party ad SDKs, no account creation, no chat.
+- **Online play**: not required.
 
 ---
 
@@ -32,8 +42,10 @@ their launchers at the same time. The phone is the arena.
 ### 1.3 Win conditions
 - **Ring-out** — Spinner crosses outside the arena boundary.
 - **Spin-out** — Angular velocity falls below a threshold (top tips over).
-- **Burst** (optional, later) — Sustained high-impact damage breaks the
-  spinner into parts.
+- **Burst** — Sustained high-impact damage breaks the spinner into parts.
+  Each spinner has a hidden `integrity` value that drops on hits scaled by
+  impact impulse; at zero, the spinner explodes into 2–3 fragments with a
+  burst SFX and the round ends.
 
 ### 1.4 Spinner stats
 | Stat        | Effect                                                |
@@ -44,6 +56,7 @@ their launchers at the same time. The phone is the arena.
 | Perimeter   | Smooth ring (defense), toothed (attack), heavy rim    |
 |             | (stamina). Shape drives collision response.           |
 | Recoil      | How much energy bounces back to the attacker.         |
+| Integrity   | Hidden HP for the burst mechanic.                     |
 
 ### 1.5 Controls
 - **Rip cord**: a single swipe per player on their half of the screen.
@@ -62,8 +75,7 @@ their launchers at the same time. The phone is the arena.
 
 ### 1.7 Modes (phased)
 - **Phase 1**: Local 2P, same device. Solo vs AI.
-- **Phase 2**: Single-device tournament bracket; cosmetic unlocks.
-- **Phase 3**: Async online (reshare last opponent's launch); then realtime.
+- **Phase 2**: Single-device tournament bracket; cosmetic unlocks (all free).
 
 ---
 
@@ -80,10 +92,10 @@ their launchers at the same time. The phone is the arena.
 | Web build / dev  | **Vite**                                   | Fast HMR, easy TS + asset pipeline.                                                         |
 | Audio            | **Howler.js** (or Phaser's built-in audio) | Sprite-based audio, mobile-friendly unlock handling.                                        |
 | State / UI menus | **Plain TS + small store** (Zustand-style) | Menus are simple; avoid React unless we want richer UI later.                               |
-| Assets pipeline  | **TexturePacker** + **Aseprite**           | Sprite atlases keep mobile draw calls down.                                                 |
-| Persistence      | **Capacitor Preferences** + **IndexedDB**  | Cross-platform key-value + structured storage for progression.                              |
-| Analytics/crash  | **Sentry**                                 | Web + native SDKs; one project.                                                             |
-| CI/CD            | **GitHub Actions** + **EAS-style scripts** | Build web to a static host; build iOS/Android via Capacitor + Xcode/Gradle in CI.           |
+| Assets pipeline  | **TexturePacker** + **Substance/Blender** baked to 2D | Render metallic spinners in 3D, bake to sprite sheets for that "real metal" look without a 3D runtime cost. |
+| Persistence      | **Capacitor Preferences**                  | Local-only key-value for progression. No accounts, no cloud sync.                           |
+| Analytics/crash  | **None in v1**                             | COPPA: no behavioural analytics. If we add crash reporting later it will be a self-hosted, no-PII option (e.g. self-hosted Sentry with `sendDefaultPii: false` and IP scrubbing). |
+| CI/CD            | **GitHub Actions**                         | Build web to a static host; build iOS/Android via Capacitor + Xcode/Gradle in CI.           |
 
 ### 2.2 Why not the alternatives
 
@@ -110,6 +122,9 @@ their launchers at the same time. The phone is the arena.
     and the attacker's perimeter modifier — this is what makes spinners
     fly across the arena like real Beyblades instead of sticking.
 - Spin-out triggers when `ω < ωMin` for `tStop` ms.
+- Burst: each impact subtracts `impulse * burstFactor` from `integrity`.
+  When `integrity ≤ 0`, replace the spinner body with 2–3 fragment bodies
+  given outward velocities and a short lifetime; round ends.
 
 ### 2.4 Input model
 - One **PointerTracker** per screen half. Each tracks an active pointer's
@@ -123,8 +138,16 @@ their launchers at the same time. The phone is the arena.
 ### 2.5 Rendering
 - Fixed-resolution virtual canvas (e.g. 1280×720 landscape) scaled to fit
   the device. Phaser's `Scale.FIT` handles letterboxing and notches.
+- Landscape orientation locked via `@capacitor/screen-orientation` on
+  native and a CSS/JS guard on web.
 - Spinners rendered as a base sprite + an animated rim overlay rotating at
   visual RPM (capped so it never looks stroboscopic).
+- **Metallic look**: spinners are pre-rendered from 3D models (Blender +
+  Substance) into 32–64 frame rotation atlases with baked specular
+  highlights, anisotropic brushed-metal streaks, and rim light. A dynamic
+  "shine" sprite overlays the rim and rotates opposite to spin direction
+  to sell motion. Sparks use additive blending with bloom on the WebGL
+  renderer.
 
 ### 2.6 Cross-platform packaging
 - `npm run build` → static web bundle (deploy to Cloudflare Pages /
@@ -137,6 +160,16 @@ their launchers at the same time. The phone is the arena.
   - `@capacitor/preferences` for save data.
   - `@capacitor/screen-orientation` to lock landscape.
   - `@capacitor/status-bar` for immersive mode.
+
+### 2.7 COPPA / under-13 compliance checklist
+- No account creation, no login, no PII collected.
+- No third-party advertising SDKs.
+- No behavioural analytics or device fingerprinting.
+- No chat, no UGC sharing, no social features.
+- App store listings: tick "Made for Kids" (Google Play Designed for
+  Families) and the App Store Kids category with the appropriate age band.
+- Privacy policy page (required for stores) stating "no data collected".
+- All assets/sound original or licensed for commercial child-directed use.
 
 ---
 
@@ -193,38 +226,39 @@ spin-wars/
 
 ### Phase 1 — Core loop (1 week)
 - Two-pointer launch input on a split screen.
-- Two spinners, simple stats, collisions, ring-out, spin-out.
+- Two spinners, simple stats, collisions, ring-out, spin-out, **burst**.
 - Win screen and rematch.
 
 ### Phase 2 — Game feel (1 week)
 - Particles, screen shake, haptics, sound.
 - Aim-assist arrow, countdown, transitions.
-- 4–6 spinners with distinct stats and visuals.
+- 4–6 spinners with distinct stats and metallic baked-sprite visuals.
 
 ### Phase 3 — Meta (1 week)
 - Spinner select UI with stat bars.
-- Persistent unlocks and a simple progression curve.
+- Persistent unlocks and a simple progression curve (all earned in-game,
+  no purchases).
 - Solo vs AI mode.
 
 ### Phase 4 — Polish & ship (ongoing)
 - Web deploy.
 - TestFlight / Play Internal Testing builds.
-- Analytics, crash reporting, balance pass.
-
-### Phase 5 — Online (stretch)
-- Async "ghost" launches (record opponent's rip + replay).
-- Realtime via WebRTC datachannels using the deterministic loop from §3.2.
+- "Made for Kids" / "Designed for Families" submission, privacy policy
+  page, balance pass.
 
 ---
 
-## 5. Open Questions
+## 5. Decisions Log
 
-1. **Orientation** — Landscape locked? (Recommended: yes, for split-screen.)
-2. **Burst mechanic** — In v1 or save for v2?
-3. **Monetisation** — Free + cosmetics? Paid? Ads? (Affects analytics +
-   billing plugin choice.)
-4. **Art direction** — Cartoon, metallic-realistic, or neon-arcade?
-5. **Audience age** — If <13, COPPA / no analytics that profiles.
-6. **Online play priority** — Phase 5 stretch or earlier?
+All initial open questions have been resolved:
 
-Answers to these will tighten Phase 1–3 scope before we start coding.
+| # | Question        | Decision                                              |
+|---|-----------------|-------------------------------------------------------|
+| 1 | Orientation     | Landscape, locked.                                    |
+| 2 | Burst mechanic  | In v1.                                                |
+| 3 | Monetisation    | None — completely free, no ads, no IAP.               |
+| 4 | Art direction   | Metallic-realistic (3D-baked sprites).                |
+| 5 | Audience        | Under 13 — COPPA-compliant (see §2.7).                |
+| 6 | Online play     | Not required; Phase 5 dropped.                        |
+
+Ready to start Phase 0.
